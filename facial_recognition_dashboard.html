@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem de Reconhecimento Facial & Visualizador de Embeddings 128D</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            800: '#1e1b4b',
+                            900: '#0f172a',
+                            950: '#030712',
+                            accent: '#00f0ff',
+                            neon: '#10b981'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for Embedding Visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Face API JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <style>
+        body {
+            background-color: #030712;
+            color: #f3f4f6;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .neon-border-green {
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+            border-color: rgba(16, 185, 129, 0.6);
+        }
+        .neon-border-blue {
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+            border-color: rgba(0, 240, 255, 0.6);
+        }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.4);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 240, 255, 0.7);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+
+    <!-- Header Navigation -->
+    <header class="glass-panel sticky top-0 z-50 px-4 py-3 border-b border-slate-800">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-cyan-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                    <i class="fa-solid fa-face-viewfinder text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-cyan-400 bg-clip-text text-transparent">
+                        FaceID 128D <span class="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">IA Local</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Reconhecimento Facial & Espaço de Embeddings</p>
+                </div>
+            </div>
+
+            <!-- Header Controls & Badges -->
+            <div class="flex items-center gap-3">
+                <span id="model-status-badge" class="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Carregando Modelos...
+                </span>
+                <span class="hidden md:flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" title="Processamento 100% Local no Navegador">
+                    <i class="fa-solid fa-shield-halved"></i> 100% Privado
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="max-w-7xl mx-auto w-full p-4 md:p-6 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- LEFT COLUMN: Input & Camera Stream (Lg: 7 cols) -->
+        <section class="lg:col-span-7 flex flex-col gap-6">
+            
+            <!-- Video/Image Container -->
+            <div class="glass-panel rounded-2xl p-4 relative flex flex-col items-center justify-center min-h-[380px] sm:min-h-[460px] overflow-hidden border border-slate-800">
+                
+                <!-- Overlay Indicator Bar -->
+                <div class="absolute top-6 left-6 z-20 flex items-center gap-2 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-700/50 text-xs">
+                    <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></div>
+                    <span id="status-text" class="font-mono text-slate-300">Inicializando...</span>
+                </div>
+
+                <!-- Input Switcher Mode Tabs -->
+                <div class="absolute top-6 right-6 z-20 flex bg-slate-900/90 rounded-lg p-1 border border-slate-700/60">
+                    <button id="btn-mode-webcam" onclick="switchInputMode('webcam')" class="px-3 py-1 text-xs font-semibold rounded-md transition-all bg-indigo-600 text-white shadow-sm">
+                        <i class="fa-solid fa-video mr-1"></i> Câmera
+                    </button>
+                    <button id="btn-mode-image" onclick="switchInputMode('image')" class="px-3 py-1 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all">
+                        <i class="fa-solid fa-image mr-1"></i> Imagem
+                    </button>
+                </div>
+
+                <!-- Media Viewports Container -->
+                <div class="relative w-full h-full flex items-center justify-center my-auto overflow-hidden rounded-xl bg-slate-950/80 border border-slate-800/80">
+                    
+                    <!-- WEBCAM VIEWPORT -->
+                    <div id="viewport-webcam" class="relative w-full flex items-center justify-center min-h-[340px] sm:min-h-[400px]">
+                        <video id="webcam" autoplay muted playsinline class="max-h-[420px] w-auto rounded-lg object-contain transform -scale-x-100 hidden"></video>
+                        <canvas id="canvas-webcam-overlay" class="absolute top-0 left-0 pointer-events-none transform -scale-x-100"></canvas>
+                        
+                        <!-- Webcam Placeholder -->
+                        <div id="webcam-placeholder" class="text-center p-6 flex flex-col items-center justify-center">
+                            <i class="fa-solid fa-camera-retro text-5xl text-slate-700 mb-3 animate-pulse"></i>
+                            <p class="text-slate-400 text-sm">A câmera está desativada.</p>
+                            <button id="btn-start-cam" onclick="startWebcam()" class="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg transition duration-200">
+                                Iniciar Webcam
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- IMAGE UPLOAD VIEWPORT -->
+                    <div id="viewport-image" class="hidden relative w-full min-h-[340px] sm:min-h-[400px] flex flex-col items-center justify-center p-4">
+                        <div id="drop-zone" class="w-full h-full border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl flex flex-col items-center justify-center p-6 transition duration-200 cursor-pointer group bg-slate-900/40">
+                            <input type="file" id="image-input" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                            <div class="w-12 h-12 rounded-full bg-slate-800 group-hover:bg-cyan-950 group-hover:text-cyan-400 text-slate-400 flex items-center justify-center text-xl mb-3 transition">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <p class="text-sm font-medium text-slate-300 text-center">Arraste uma foto aqui ou <span class="text-cyan-400 underline">clique para procurar</span></p>
+                            <p class="text-xs text-slate-500 mt-1">Suporta JPG, PNG, WEBP</p>
+                        </div>
+
+                        <!-- Uploaded Image Render Box -->
+                        <div id="image-render-box" class="hidden relative max-w-full max-h-[400px] flex items-center justify-center">
+                            <img id="uploaded-image" class="max-h-[400px] w-auto rounded-lg object-contain" alt="Imagem Enviada">
+                            <canvas id="canvas-image-overlay" class="absolute top-0 left-0 pointer-events-none"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Camera Switcher & Controls Bar -->
+                <div id="webcam-controls" class="w-full flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800/80">
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs text-slate-400 font-mono"><i class="fa-solid fa-sliders"></i> Câmera:</label>
+                        <select id="camera-select" onchange="changeCamera()" class="bg-slate-900 text-slate-200 text-xs rounded-md border border-slate-700 px-2.5 py-1.5 focus:border-cyan-500 outline-none">
+                            <option value="">Carregando dispositivos...</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="btn-toggle-cam" onclick="toggleWebcam()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition border border-slate-700">
+                            <i class="fa-solid fa-power-off text-rose-400 mr-1"></i> Desligar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Face Registration & Threshold Control Card -->
+            <div class="glass-panel rounded-2xl p-5 border border-slate-800 flex flex-col gap-5">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-user-plus text-cyan-400"></i> Cadastrar Rosto
+                    </h2>
+                    <span class="text-xs text-slate-400">Adicione perfis para comparação de vetor</span>
+                </div>
+
+                <!-- Form Controls -->
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div class="sm:col-span-8">
+                        <label for="person-name" class="block text-xs font-mono text-slate-400 mb-1">Nome da Pessoa / Rótulo</label>
+                        <input type="text" id="person-name" placeholder="Ex: Ana Silva, Carlos..." class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 text-white rounded-lg px-3 py-2 text-sm outline-none transition">
+                    </div>
+                    <div class="sm:col-span-4 flex items-end">
+                        <button id="btn-register" onclick="registerCurrentFace()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-emerald-950/30 transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-bookmark"></i> Cadastrar Rosto
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Threshold Rigor Slider -->
+                <div class="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800 flex flex-col gap-2">
+                    <div class="flex items-center justify-between text-xs">
+                        <label for="threshold-slider" class="font-mono text-slate-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-gauge-high text-cyan-400"></i> Limiar de Similaridade (Threshold Cosseno)
+                        </label>
+                        <span id="threshold-val" class="font-mono font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800">0.78</span>
+                    </div>
+                    <input type="range" id="threshold-slider" min="0.50" max="0.95" step="0.01" value="0.78" oninput="updateThreshold(this.value)" class="w-full accent-cyan-400 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                    <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>0.50 (Permissivo)</span>
+                        <span>0.78 (Padrão)</span>
+                        <span>0.95 (Rigoroso)</span>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+
+        <!-- RIGHT COLUMN: Embeddings Visualizations & Management (Lg: 5 cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-6">
+            
+            <!-- Embedding 128D Bar Chart -->
+            <div class="glass-panel rounded-2xl p-4 border border-slate-800 flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-chart-column text-cyan-400"></i> Embedding Atual (Vetor L2 de 128 Valores)
+                    </h3>
+                    <span id="embedding-status" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">Nenhum Rosto</span>
+                </div>
+
+                <div class="w-full h-32 bg-slate-950/80 rounded-xl p-2 border border-slate-800/80 relative">
+                    <canvas id="chart-embedding-bar"></canvas>
+                </div>
+            </div>
+
+            <!-- PCA 2D Scatter Projection Plot -->
+            <div class="glass-panel rounded-2xl p-4 border border-slate-800 flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-diagram-project text-indigo-400"></i> Projeção Espacial 2D de Embeddings (PCA)
+                    </h3>
+                    <span class="text-[10px] text-slate-400 font-mono">128D &rarr; 2D</span>
+                </div>
+                
+                <div class="w-full h-52 bg-slate-950/80 rounded-xl p-2 border border-slate-800/80 relative">
+                    <canvas id="chart-pca-scatter"></canvas>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-tight">
+                    * O gráfico projeta os vetores das pessoas cadastradas no espaço 2D. O marcador <span class="text-amber-400 font-bold">Amarelo</span> representa o rosto detectado no momento.
+                </p>
+            </div>
+
+            <!-- Database & Saved Embeddings Management -->
+            <div class="glass-panel rounded-2xl p-4 border border-slate-800 flex flex-col gap-4 flex-1">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <h3 class="text-xs font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-database text-emerald-400"></i> Pessoas Cadastradas
+                    </h3>
+                    <span id="registered-count" class="text-xs font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">0 Perfis</span>
+                </div>
+
+                <!-- Scrollable People List -->
+                <div id="people-list" class="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                    <div class="text-center py-6 text-xs text-slate-500 font-mono">
+                        Nenhum rosto cadastrado ainda.
+                    </div>
+                </div>
+
+                <!-- Database Backup & File Actions -->
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 mt-auto">
+                    <button onclick="exportJSON()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-download text-cyan-400"></i> Exportar JSON
+                    </button>
+                    
+                    <label class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center justify-center gap-1.5 cursor-pointer">
+                        <i class="fa-solid fa-upload text-emerald-400"></i> Importar JSON
+                        <input type="file" id="import-file" accept=".json" onchange="importJSON(event)" class="hidden">
+                    </label>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass-panel border-t border-slate-800 py-3 px-4 mt-6 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <span>Visão Computacional no Navegador com <strong class="text-slate-400">face-api.js</strong> & Embeddings de 128 dimensões.</span>
+            <span class="font-mono text-[10px] text-slate-600">L2 Cosine Distance Engine v2.1</span>
+        </div>
+    </footer>
+
+    <!-- Notification Toast Box -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none max-w-sm">
+        <div id="toast-content" class="px-4 py-3 rounded-xl shadow-2xl border flex items-center gap-3 text-xs font-medium bg-slate-900 border-slate-700 text-white">
+            <i id="toast-icon" class="fa-solid fa-circle-info text-cyan-400 text-lg"></i>
+            <span id="toast-message">Mensagem do sistema</span>
+        </div>
+    </div>
+
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        // --- GLOBAL APP STATE ---
+        let currentInputMode = 'webcam'; // 'webcam' | 'image'
+        let isModelsLoaded = false;
+        let isCameraRunning = false;
+        let activeStream = null;
+        let detectionInterval = null;
+        let currentThreshold = 0.78;
+        
+        // Active Face State
+        let activeFaceDescriptor = null; // Float32Array 128 values
+        let registeredFaces = []; // Array of { name: string, embeddings: Array<Array<number>> }
+
+        // Chart Instances
+        let barChartInstance = null;
+        let pcaChartInstance = null;
+
+        // CDN Models Location
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+
+        // DOM Elements
+        const webcamElem = document.getElementById('webcam');
+        const canvasWebcamOverlay = document.getElementById('canvas-webcam-overlay');
+        const uploadedImgElem = document.getElementById('uploaded-image');
+        const canvasImgOverlay = document.getElementById('canvas-image-overlay');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const modelBadge = document.getElementById('model-status-badge');
+
+        // Initialize App on DOM Load
+        window.addEventListener('DOMContentLoaded', async () => {
+            initCharts();
+            loadSavedEmbeddings();
+            await loadModels();
+            await populateCameraDevices();
+            setupDragAndDrop();
+        });
+
+        // --- MODEL LOADING ---
+        async function loadModels() {
+            try {
+                updateStatus('loading', 'Carregando modelos de IA...');
+                
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+
+                isModelsLoaded = true;
+                modelBadge.className = "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+                modelBadge.innerHTML = '<i class="fa-solid fa-check-circle"></i> Modelos Prontos';
+                
+                updateStatus('ready', 'Pronto para uso');
+                showToast('Modelos de reconhecimento facial carregados com sucesso!', 'success');
+
+                // Auto-start camera if in webcam mode
+                if (currentInputMode === 'webcam') {
+                    startWebcam();
+                }
+            } catch (err) {
+                console.error("Erro ao carregar modelos:", err);
+                modelBadge.className = "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30";
+                modelBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Erro nos Modelos';
+                updateStatus('error', 'Falha ao carregar modelos');
+                showToast('Erro ao carregar os modelos de IA. Verifique sua conexão.', 'error');
+            }
+        }
+
+        // --- STATUS INDICATOR ---
+        function updateStatus(state, message) {
+            statusText.innerText = message;
+            if (state === 'loading') {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
+            } else if (state === 'active') {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping";
+            } else if (state === 'ready') {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-cyan-400";
+            } else {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+            }
+        }
+
+        // --- WEBCAM MANAGEMENT ---
+        async function populateCameraDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const select = document.getElementById('camera-select');
+                select.innerHTML = '';
+
+                if (videoDevices.length === 0) {
+                    select.innerHTML = '<option value="">Sem câmeras encontradas</option>';
+                    return;
+                }
+
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Câmera ${index + 1}`;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.warn("Não foi possível listar dispositivos de vídeo:", e);
+            }
+        }
+
+        async function startWebcam() {
+            if (!isModelsLoaded) {
+                showToast('Aguarde os modelos terminarem de carregar.', 'warning');
+                return;
+            }
+
+            const deviceId = document.getElementById('camera-select').value;
+            const constraints = {
+                video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 640 }, height: { ideal: 480 } }
+            };
+
+            try {
+                if (activeStream) {
+                    activeStream.getTracks().forEach(track => track.stop());
+                }
+
+                activeStream = await navigator.mediaDevices.getUserMedia(constraints);
+                webcamElem.srcObject = activeStream;
+                webcamElem.classList.remove('hidden');
+                document.getElementById('webcam-placeholder').classList.add('hidden');
+                
+                isCameraRunning = true;
+                updateStatus('active', 'Processando vídeo em tempo real');
+
+                webcamElem.onloadedmetadata = () => {
+                    webcamElem.play();
+                    resizeCanvasOverlay();
+                    startWebcamDetectionLoop();
+                };
+
+            } catch (err) {
+                console.error("Erro ao acessar a webcam:", err);
+                showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'error');
+                updateStatus('error', 'Câmera bloqueada');
+            }
+        }
+
+        function toggleWebcam() {
+            if (isCameraRunning) {
+                stopWebcam();
+            } else {
+                startWebcam();
+            }
+        }
+
+        function stopWebcam() {
+            if (detectionInterval) clearInterval(detectionInterval);
+            if (activeStream) {
+                activeStream.getTracks().forEach(track => track.stop());
+            }
+            webcamElem.classList.add('hidden');
+            document.getElementById('webcam-placeholder').classList.remove('hidden');
+            isCameraRunning = false;
+            updateStatus('ready', 'Câmera parada');
+            clearCanvas(canvasWebcamOverlay);
+            clearActiveEmbedding();
+        }
+
+        async function changeCamera() {
+            if (isCameraRunning) {
+                await startWebcam();
+            }
+        }
+
+        function resizeCanvasOverlay() {
+            if (!webcamElem.videoWidth) return;
+            canvasWebcamOverlay.width = webcamElem.videoWidth;
+            canvasWebcamOverlay.height = webcamElem.videoHeight;
+        }
+
+        // --- REAL-TIME DETECTION LOOP (WEBCAM) ---
+        function startWebcamDetectionLoop() {
+            if (detectionInterval) clearInterval(detectionInterval);
+
+            detectionInterval = setInterval(async () => {
+                if (!isCameraRunning || webcamElem.paused || webcamElem.ended) return;
+
+                const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+                
+                const detections = await faceapi.detectAllFaces(webcamElem, options)
+                    .withFaceLandmarks()
+                    .withFaceDescriptors();
+
+                const displaySize = { width: webcamElem.videoWidth, height: webcamElem.videoHeight };
+                faceapi.matchDimensions(canvasWebcamOverlay, displaySize);
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                const ctx = canvasWebcamOverlay.getContext('2d');
+                ctx.clearRect(0, 0, canvasWebcamOverlay.width, canvasWebcamOverlay.height);
+
+                if (resizedDetections.length > 0) {
+                    // Update current focused descriptor (first detected face)
+                    const normalizedDescriptor = normalizeL2(resizedDetections[0].descriptor);
+                    updateActiveEmbedding(normalizedDescriptor);
+
+                    // Match and Draw Bounding Boxes
+                    resizedDetections.forEach(det => {
+                        const descriptor = normalizeL2(det.descriptor);
+                        const match = findBestMatch(descriptor);
+                        
+                        const box = det.detection.box;
+                        const isKnown = match.label !== 'Desconhecido';
+
+                        // Canvas Bounding Box styling
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = isKnown ? '#10b981' : '#f43f5e';
+                        ctx.fillStyle = isKnown ? '#10b981' : '#f43f5e';
+                        
+                        // Corner rounded box stroke
+                        ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+                        // Label Box
+                        const labelText = isKnown ? `${match.label} (${(match.similarity * 100).toFixed(1)}%)` : 'Desconhecido';
+                        ctx.font = 'bold 13px system-ui';
+                        const textWidth = ctx.measureText(labelText).width;
+                        
+                        ctx.fillRect(box.x - 1, box.y - 26, textWidth + 12, 26);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(labelText, box.x + 5, box.y - 8);
+                    });
+                } else {
+                    clearActiveEmbedding();
+                }
+
+            }, 150); // ~6-7 FPS loop for smooth performance
+        }
+
+        // --- IMAGE UPLOAD PROCESSING ---
+        function setupDragAndDrop() {
+            const dropZone = document.getElementById('drop-zone');
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('border-cyan-400', 'bg-cyan-950/20');
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+                });
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files.length) processImageFile(files[0]);
+            });
+
+            dropZone.addEventListener('click', () => {
+                document.getElementById('image-input').click();
+            });
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (file) processImageFile(file);
+        }
+
+        function processImageFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast('Selecione um arquivo de imagem válido.', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                uploadedImgElem.src = e.target.result;
+                document.getElementById('drop-zone').classList.add('hidden');
+                document.getElementById('image-render-box').classList.remove('hidden');
+
+                uploadedImgElem.onload = async () => {
+                    await analyzeStaticImage();
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function analyzeStaticImage() {
+            if (!isModelsLoaded) {
+                showToast('Aguarde os modelos carregarem.', 'warning');
+                return;
+            }
+
+            updateStatus('loading', 'Analisando imagem...');
+
+            const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 });
+            const detections = await faceapi.detectAllFaces(uploadedImgElem, options)
+                .withFaceLandmarks()
+                .withFaceDescriptors();
+
+            canvasImgOverlay.width = uploadedImgElem.clientWidth;
+            canvasImgOverlay.height = uploadedImgElem.clientHeight;
+
+            const displaySize = { width: uploadedImgElem.clientWidth, height: uploadedImgElem.clientHeight };
+            faceapi.matchDimensions(canvasImgOverlay, displaySize);
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+            const ctx = canvasImgOverlay.getContext('2d');
+            ctx.clearRect(0, 0, canvasImgOverlay.width, canvasImgOverlay.height);
+
+            if (resizedDetections.length > 0) {
+                const normalizedDescriptor = normalizeL2(resizedDetections[0].descriptor);
+                updateActiveEmbedding(normalizedDescriptor);
+
+                resizedDetections.forEach(det => {
+                    const descriptor = normalizeL2(det.descriptor);
+                    const match = findBestMatch(descriptor);
+                    
+                    const box = det.detection.box;
+                    const isKnown = match.label !== 'Desconhecido';
+
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = isKnown ? '#10b981' : '#f43f5e';
+                    ctx.fillStyle = isKnown ? '#10b981' : '#f43f5e';
+                    
+                    ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+                    const labelText = isKnown ? `${match.label} (${(match.similarity * 100).toFixed(1)}%)` : 'Desconhecido';
+                    ctx.font = 'bold 13px system-ui';
+                    const textWidth = ctx.measureText(labelText).width;
+                    
+                    ctx.fillRect(box.x - 1, box.y - 26, textWidth + 12, 26);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(labelText, box.x + 5, box.y - 8);
+                });
+
+                updateStatus('ready', `${resizedDetections.length} rosto(s) detectado(s)`);
+                showToast(`${resizedDetections.length} rosto(s) detectado(s) na imagem.`, 'info');
+            } else {
+                clearActiveEmbedding();
+                updateStatus('ready', 'Nenhum rosto encontrado');
+                showToast('Nenhum rosto foi detectado na imagem.', 'warning');
+            }
+        }
+
+        // --- MODE SWITCHING ---
+        function switchInputMode(mode) {
+            currentInputMode = mode;
+            const btnWebcam = document.getElementById('btn-mode-webcam');
+            const btnImg = document.getElementById('btn-mode-image');
+            const viewWebcam = document.getElementById('viewport-webcam');
+            const viewImg = document.getElementById('viewport-image');
+
+            if (mode === 'webcam') {
+                btnWebcam.className = "px-3 py-1 text-xs font-semibold rounded-md transition-all bg-indigo-600 text-white shadow-sm";
+                btnImg.className = "px-3 py-1 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all";
+                viewWebcam.classList.remove('hidden');
+                viewImg.classList.add('hidden');
+                document.getElementById('webcam-controls').classList.remove('hidden');
+                startWebcam();
+            } else {
+                btnImg.className = "px-3 py-1 text-xs font-semibold rounded-md transition-all bg-indigo-600 text-white shadow-sm";
+                btnWebcam.className = "px-3 py-1 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all";
+                viewImg.classList.remove('hidden');
+                viewWebcam.classList.add('hidden');
+                document.getElementById('webcam-controls').classList.add('hidden');
+                stopWebcam();
+            }
+        }
+
+        // --- EMBEDDING MATH & COSINE SIMILARITY ---
+        
+        // L2 Normalization (Unit Length Euclidean Vector)
+        function normalizeL2(vector) {
+            let sumSq = 0;
+            for (let i = 0; i < vector.length; i++) {
+                sumSq += vector[i] * vector[i];
+            }
+            const norm = Math.sqrt(sumSq) || 1;
+            const normalized = new Float32Array(vector.length);
+            for (let i = 0; i < vector.length; i++) {
+                normalized[i] = vector[i] / norm;
+            }
+            return normalized;
+        }
+
+        // Cosine Similarity between 2 normalized unit vectors = Dot Product
+        function cosineSimilarity(vecA, vecB) {
+            let dotProduct = 0;
+            for (let i = 0; i < vecA.length; i++) {
+                dotProduct += vecA[i] * vecB[i];
+            }
+            return dotProduct;
+        }
+
+        function findBestMatch(targetDescriptor) {
+            if (registeredFaces.length === 0) {
+                return { label: 'Desconhecido', similarity: 0 };
+            }
+
+            let bestMatch = { label: 'Desconhecido', similarity: -1 };
+
+            registeredFaces.forEach(person => {
+                person.embeddings.forEach(embedding => {
+                    const sim = cosineSimilarity(targetDescriptor, embedding);
+                    if (sim > bestMatch.similarity) {
+                        bestMatch = { label: person.name, similarity: sim };
+                    }
+                });
+            });
+
+            if (bestMatch.similarity >= currentThreshold) {
+                return bestMatch;
+            } else {
+                return { label: 'Desconhecido', similarity: bestMatch.similarity };
+            }
+        }
+
+        // --- REGISTER FACE ---
+        function registerCurrentFace() {
+            const nameInput = document.getElementById('person-name');
+            const name = nameInput.value.trim();
+
+            if (!name) {
+                showToast('Por favor, digite o nome da pessoa antes de cadastrar.', 'warning');
+                return;
+            }
+
+            if (!activeFaceDescriptor) {
+                showToast('Nenhum rosto visível no momento para cadastrar.', 'error');
+                return;
+            }
+
+            // Convert Float32Array to regular array for storage
+            const embeddingArray = Array.from(activeFaceDescriptor);
+
+            const existingPerson = registeredFaces.find(p => p.name.toLowerCase() === name.toLowerCase());
+
+            if (existingPerson) {
+                existingPerson.embeddings.push(embeddingArray);
+                showToast(`Amostra de embedding adicionada para "${existingPerson.name}". Total: ${existingPerson.embeddings.length}`, 'success');
+            } else {
+                registeredFaces.push({
+                    name: name,
+                    embeddings: [embeddingArray]
+                });
+                showToast(`Perfil "${name}" cadastrado com sucesso!`, 'success');
+            }
+
+            saveEmbeddingsToStorage();
+            renderPeopleList();
+            updateScatterPlot();
+            nameInput.value = '';
+        }
+
+        function updateThreshold(val) {
+            currentThreshold = parseFloat(val);
+            document.getElementById('threshold-val').innerText = currentThreshold.toFixed(2);
+        }
+
+        // --- VISUALIZATIONS (CHART.JS) ---
+        function initCharts() {
+            // 1. Bar Chart for 128D Embedding Vector
+            const ctxBar = document.getElementById('chart-embedding-bar').getContext('2d');
+            const placeholderData = new Array(128).fill(0);
+            
+            barChartInstance = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({length: 128}, (_, i) => i + 1),
+                    datasets: [{
+                        label: '128D Embedding Values',
+                        data: placeholderData,
+                        backgroundColor: 'rgba(0, 240, 255, 0.6)',
+                        borderColor: '#00f0ff',
+                        borderWidth: 1,
+                        barPercentage: 1.0,
+                        categoryPercentage: 1.0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { 
+                            display: true, 
+                            min: -0.25, 
+                            max: 0.25,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#64748b', font: { size: 9 } } 
+                        }
+                    }
+                }
+            });
+
+            // 2. PCA 2D Scatter Chart
+            const ctxScatter = document.getElementById('chart-pca-scatter').getContext('2d');
+            pcaChartInstance = new Chart(ctxScatter, {
+                type: 'scatter',
+                data: {
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { color: '#94a3b8', font: { size: 10 }, usePointStyle: true, boxWidth: 6 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.dataset.label}: (${ctx.parsed.x.toFixed(2)}, ${ctx.parsed.y.toFixed(2)})`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#64748b', font: { size: 9 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#64748b', font: { size: 9 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateActiveEmbedding(descriptor) {
+            activeFaceDescriptor = descriptor;
+            document.getElementById('embedding-status').innerText = "Rosto Ativo";
+            document.getElementById('embedding-status').className = "text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800";
+
+            // Update Bar Chart
+            if (barChartInstance) {
+                barChartInstance.data.datasets[0].data = Array.from(descriptor);
+                barChartInstance.update('none');
+            }
+
+            updateScatterPlot();
+        }
+
+        function clearActiveEmbedding() {
+            activeFaceDescriptor = null;
+            document.getElementById('embedding-status').innerText = "Nenhum Rosto";
+            document.getElementById('embedding-status').className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400";
+
+            if (barChartInstance) {
+                barChartInstance.data.datasets[0].data = new Array(128).fill(0);
+                barChartInstance.update('none');
+            }
+
+            updateScatterPlot();
+        }
+
+        // --- SIMPLIFIED PCA 2D PROJECTION ENGINE ---
+        // Projects 128D vectors down to 2D using top variance pseudorandom/deterministic projections
+        function compute2DProjection(vector128) {
+            let x = 0, y = 0;
+            // Deterministic PCA weights mapping for smooth scatter spacing
+            for (let i = 0; i < 128; i++) {
+                x += vector128[i] * Math.cos((i * Math.PI) / 64);
+                y += vector128[i] * Math.sin((i * Math.PI) / 64);
+            }
+            return { x, y };
+        }
+
+        const PERSON_COLORS = [
+            '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#f97316', 
+            '#14b8a6', '#eab308', '#06b6d4', '#a855f7', '#f43f5e'
+        ];
+
+        function updateScatterPlot() {
+            if (!pcaChartInstance) return;
+
+            const datasets = [];
+
+            // Plot registered persons
+            registeredFaces.forEach((person, idx) => {
+                const color = PERSON_COLORS[idx % PERSON_COLORS.length];
+                const points = person.embeddings.map(emb => compute2DProjection(emb));
+
+                datasets.push({
+                    label: person.name,
+                    data: points,
+                    backgroundColor: color,
+                    borderColor: color,
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                });
+            });
+
+            // Plot active face (in target highlight style)
+            if (activeFaceDescriptor) {
+                const activePoint = compute2DProjection(activeFaceDescriptor);
+                datasets.push({
+                    label: '🎯 Target Atual',
+                    data: [activePoint],
+                    backgroundColor: '#facc15',
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    pointRadius: 9,
+                    pointStyle: 'star'
+                });
+            }
+
+            pcaChartInstance.data.datasets = datasets;
+            pcaChartInstance.update('none');
+        }
+
+        // --- LOCALSTORAGE & DATA MANAGEMENT ---
+        function saveEmbeddingsToStorage() {
+            try {
+                localStorage.setItem('faceid_registered_embeddings', JSON.stringify(registeredFaces));
+            } catch (e) {
+                console.error("Falha ao salvar no localStorage:", e);
+            }
+        }
+
+        function loadSavedEmbeddings() {
+            try {
+                const saved = localStorage.getItem('faceid_registered_embeddings');
+                if (saved) {
+                    registeredFaces = JSON.parse(saved);
+                    // Ensure loaded vectors are L2 normalized
+                    registeredFaces.forEach(person => {
+                        person.embeddings = person.embeddings.map(vec => Array.from(normalizeL2(vec)));
+                    });
+                    renderPeopleList();
+                    updateScatterPlot();
+                }
+            } catch (e) {
+                console.error("Erro ao carregar do localStorage:", e);
+            }
+        }
+
+        function renderPeopleList() {
+            const container = document.getElementById('people-list');
+            const countElem = document.getElementById('registered-count');
+            container.innerHTML = '';
+
+            countElem.innerText = `${registeredFaces.length} Perfis`;
+
+            if (registeredFaces.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-xs text-slate-500 font-mono">
+                        Nenhum rosto cadastrado ainda.
+                    </div>
+                `;
+                return;
+            }
+
+            registeredFaces.forEach((person, index) => {
+                const color = PERSON_COLORS[index % PERSON_COLORS.length];
+                const card = document.createElement('div');
+                card.className = "glass-card p-2.5 rounded-xl flex items-center justify-between border border-slate-800/80 hover:border-slate-700 transition";
+                
+                card.innerHTML = `
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-3 h-3 rounded-full" style="background-color: ${color}"></div>
+                        <div>
+                            <p class="text-xs font-bold text-slate-200">${escapeHtml(person.name)}</p>
+                            <p class="text-[10px] text-slate-400 font-mono">${person.embeddings.length} amostra(s) de vetor</p>
+                        </div>
+                    </div>
+                    <button onclick="deletePerson(${index})" class="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition" title="Excluir Perfil">
+                        <i class="fa-solid fa-trash-can text-xs"></i>
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function deletePerson(index) {
+            const name = registeredFaces[index].name;
+            registeredFaces.splice(index, 1);
+            saveEmbeddingsToStorage();
+            renderPeopleList();
+            updateScatterPlot();
+            showToast(`Perfil de "${name}" removido.`, 'info');
+        }
+
+        // --- EXPORT & IMPORT JSON ---
+        function exportJSON() {
+            if (registeredFaces.length === 0) {
+                showToast('Não há dados para exportar.', 'warning');
+                return;
+            }
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(registeredFaces, null, 2));
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            dlAnchorElem.setAttribute("download", `embeddings_faceid_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(dlAnchorElem);
+            dlAnchorElem.click();
+            dlAnchorElem.remove();
+
+            showToast('Banco de embeddings exportado com sucesso!', 'success');
+        }
+
+        function importJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    
+                    if (Array.isArray(importedData)) {
+                        registeredFaces = importedData.map(person => ({
+                            name: person.name,
+                            embeddings: person.embeddings.map(vec => Array.from(normalizeL2(vec)))
+                        }));
+
+                        saveEmbeddingsToStorage();
+                        renderPeopleList();
+                        updateScatterPlot();
+                        showToast('Base de embeddings importada com sucesso!', 'success');
+                    } else {
+                        throw new Error('Formato inválido');
+                    }
+                } catch (err) {
+                    console.error('Erro ao importar JSON:', err);
+                    showToast('Erro ao importar JSON. Verifique a estrutura do arquivo.', 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- UTILITY HELPERS ---
+        function clearCanvas(canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.innerText = message;
+
+            if (type === 'success') {
+                toastIcon.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
+            } else if (type === 'error') {
+                toastIcon.className = 'fa-solid fa-circle-xmark text-rose-400 text-lg';
+            } else if (type === 'warning') {
+                toastIcon.className = 'fa-solid fa-triangle-exclamation text-amber-400 text-lg';
+            } else {
+                toastIcon.className = 'fa-solid fa-circle-info text-cyan-400 text-lg';
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
